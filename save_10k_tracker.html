@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Build Your $10K</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;margin:0;color:#111827}
+.wrap{max-width:900px;margin:auto;padding:18px}
+h1{margin:0}.muted{color:#667085}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.card{background:#fff;border-radius:16px;padding:15px;margin:12px 0;box-shadow:0 2px 8px #0000000d}
+.stat{font-size:24px;font-weight:800;margin-top:4px}
+button,input{font:inherit}button{border:0;border-radius:10px;padding:10px 13px;background:#111827;color:white;cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}
+.secondary{background:#eef2f6;color:#111827}.danger{background:#fee2e2;color:#991b1b}
+.bar{height:10px;background:#e5e7eb;border-radius:20px;overflow:hidden}.bar>div{height:100%;background:#111827}
+.pet{border:1px solid #e5e7eb;border-radius:13px;padding:11px;margin:8px 0}
+.petrow{display:flex;align-items:center;gap:9px}.petrow b{flex:1}
+.controls{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+.alloc{display:flex;gap:8px;align-items:center;margin:8px 0}.alloc span{flex:1}
+.alloc input{width:85px;padding:7px;border:1px solid #d0d5dd;border-radius:8px}
+canvas{width:100%;height:310px;border:1px solid #eef0f3;border-radius:12px;background:#fff}
+.legend{display:flex;gap:18px;font-size:12px;flex-wrap:wrap}.dot{display:inline-block;width:18px;border-top:3px solid;margin-right:5px;vertical-align:middle}.loss{border-top:3px dashed #dc2626}
+@media(max-width:600px){.grid{grid-template-columns:1fr}.stat{font-size:21px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🐾 Build Your $10K</h1>
+<p class="muted">Save $200/week • 50-week challenge • interactive investing game</p>
+
+<div class="grid">
+<div class="card"><div class="muted">Cash available</div><div class="stat" id="cash">$0</div></div>
+<div class="card"><div class="muted">Total contributed</div><div class="stat" id="contrib">$0</div></div>
+<div class="card"><div class="muted">Week</div><div class="stat" id="week">0 / 50</div></div>
+</div>
+
+<div class="card">
+<b>$10,000 Goal</b>
+<span id="pct" style="float:right">0%</span>
+<div class="bar" style="margin-top:9px"><div id="bar"></div></div>
+</div>
+
+<div class="controls">
+<button id="saveBtn">💰 Save $200</button>
+<button class="secondary" id="undoBtn">↩ Undo Week</button>
+<button class="secondary" id="resetBtn">Reset</button>
+</div>
+
+<div class="card">
+<h2>📈 Projected Value</h2>
+<canvas id="chart"></canvas>
+<div class="legend">
+<span><i class="dot" style="border-color:#111827"></i>Contributions</span>
+<span><i class="dot" style="border-color:#16a34a"></i>Hypothetical value</span>
+<span><i class="dot loss"></i>Possible loss stress test</span>
+</div>
+<p class="muted" style="font-size:12px">The green line uses the example return assumptions below. The red dashed line models a 30% decline from the hypothetical value. Neither is a forecast.</p>
+</div>
+
+<div class="card">
+<h2>🐾 Pet Shop</h2>
+<div id="pets"></div>
+</div>
+
+<div class="card">
+<h2>💵 Weekly Allocation</h2>
+<p class="muted">Set how the next $200 gets invested. It must total exactly $200 before the next contribution is allocated.</p>
+<div id="alloc"></div>
+<b id="allocTotal">$0 / $200</b>
+</div>
+
+<div class="card">
+<h2>📊 Portfolio</h2>
+<div id="portfolio"></div>
+</div>
+
+<div class="card" style="background:#fff7ed;color:#9a3412">
+<b>⚠️ Game assumptions</b><br>
+Returns are illustrative inputs, not current market returns or predictions. Real investments can lose money, including more than the stress-test amount.
+</div>
+</div>
+
+<script>
+
+const pets=[
+["NVDA","🐲","NVIDIA Dragon",150,12.8],
+["AAPL","🐱","Apple Cat",150,14.7],
+["MSFT","🦉","Microsoft Owl",150,9.1],
+["AMD","🐉","AMD Dragon",150,11.2],
+["V","🦅","Visa Eagle",125,5.8],
+["JPM","🐻","JPM Bear",125,8.4],
+["KO","🥤","Coke Koala",100,9.3],
+["AMZN","🦊","Amazon Fox",150,13.1],
+["GOLD","🥇","Gold Lion",125,7],
+["AAL-SWING","📈","AAL Swing Trader",75,10],
+["VOO","🐼","Index Panda",100,4.7],
+["TQQQ","🚀","Rocket",200,7.2]
+];
+
+let s={
+ cash:0, contributed:0, week:0, owned:{}, alloc:{}, extra:{}, weekly:[], history:[]
+};
+
+function save(){}
+function money(n){return "$"+Math.round(n).toLocaleString()}
+function pinfo(k){return pets.find(p=>p[0]===k)}
+function weeklyRate(r){return Math.pow(1+r/100,1/13)-1}
+
+function strategyValue(k, week){
+ const p=pinfo(k), o=s.owned[k]; if(!o)return 0;
+ const r=weeklyRate(p[4]);
+ let v=p[3]+(s.extra[k]||0);
+ for(let w=o.week+1;w<=week;w++) v+=(s.alloc[k]||0)*Math.pow(1+r,week-w);
+ return v*Math.pow(1+r,Math.max(0,week-o.week));
+}
+function portfolioValue(week){
+ return Object.keys(s.owned).reduce((sum,k)=>sum+strategyValue(k,week),0);
+}
+function investedPrincipal(){
+ return Object.keys(s.owned).reduce((sum,k)=>sum+pinfo(k)[3]+(s.extra[k]||0),0)
+ + s.weekly.reduce((a,w)=>a+w.reduce((x,y)=>x+y,0),0);
+}
+
+function render(){
+ document.getElementById("cash").textContent=money(s.cash);
+ document.getElementById("contrib").textContent=money(s.contributed);
+ document.getElementById("week").textContent=s.week+" / 50";
+ let pct=Math.min(100,s.contributed/100);
+ document.getElementById("pct").textContent=Math.round(pct)+"%";
+ document.getElementById("bar").style.width=pct+"%";
+ document.getElementById("saveBtn").disabled=s.week>=50;
+
+ renderPets(); renderAlloc(); renderPortfolio(); draw();
+ save();
+}
+
+function renderPets(){
+ const box=document.getElementById("pets"); box.innerHTML="";
+ pets.forEach(p=>{
+  const [k,e,n,c,r]=p, owned=!!s.owned[k];
+  const d=document.createElement("div"); d.className="pet";
+  d.innerHTML=`<div class="petrow">
+   <input type="checkbox" ${owned?"checked disabled":""} data-buy="${k}">
+   <span style="font-size:21px">${e}</span><b>${n}</b><span>${money(c)}</span>
+  </div>
+  <div class="muted" style="font-size:12px;margin-top:5px">Example return: ${r}% • Purchase price is invested capital.</div>`;
+  if(owned){
+   const controls=document.createElement("div");controls.className="controls";
+   [25,50,100,200].forEach(a=>{
+    const b=document.createElement("button");b.textContent="+$"+a;
+    b.onclick=()=>buyMore(k,a); controls.appendChild(b);
+   });
+   const extra=document.createElement("span");extra.className="muted";extra.style.alignSelf="center";
+   extra.textContent="Extra invested: "+money(s.extra[k]||0);
+   controls.appendChild(extra);d.appendChild(controls);
+  }
+  box.appendChild(d);
+ });
+ box.querySelectorAll("[data-buy]").forEach(x=>x.onchange=()=>{
+  const k=x.dataset.buy,p=pinfo(k);
+  if(s.cash<p[3]){x.checked=false;alert("Not enough cash. You have "+money(s.cash)+" available.");return}
+  s.cash-=p[3];s.owned[k]={week:s.week};s.alloc[k]=0;render();
+ });
+}
+
+function buyMore(k,a){
+ if(s.cash<a){alert("Not enough cash. You have "+money(s.cash)+" available.");return}
+ s.cash-=a;s.extra[k]=(s.extra[k]||0)+a;render();
+}
+
+function renderAlloc(){
+ const box=document.getElementById("alloc");box.innerHTML="";
+ const owned=Object.keys(s.owned);
+ if(!owned.length){box.innerHTML='<span class="muted">Buy a pet first.</span>'}
+ owned.forEach(k=>{
+  const p=pinfo(k),row=document.createElement("div");row.className="alloc";
+  row.innerHTML=`<span>${p[1]} ${p[2]}</span>`;
+  const inp=document.createElement("input");inp.type="number";inp.min=0;inp.max=200;inp.step=25;inp.value=s.alloc[k]||0;
+  inp.oninput=()=>{s.alloc[k]=Math.max(0,Math.min(200,+inp.value||0));renderAlloc()};
+  row.appendChild(inp);box.appendChild(row);
+ });
+ const total=Object.values(s.alloc).reduce((a,b)=>a+b,0);
+ const el=document.getElementById("allocTotal");el.textContent=money(total)+" / $200";el.style.color=total===200?"#16a34a":total>200?"#dc2626":"";
+}
+
+function renderPortfolio(){
+ const box=document.getElementById("portfolio");box.innerHTML="";
+ Object.keys(s.owned).forEach(k=>{
+  const p=pinfo(k),v=strategyValue(k,s.week);
+  const row=document.createElement("div");row.style.cssText="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #eee";
+  row.innerHTML=`<span>${p[1]} ${p[2]}</span><b>${money(v)}</b>`;box.appendChild(row);
+ });
+ if(!Object.keys(s.owned).length)box.innerHTML='<span class="muted">No strategies owned yet.</span>';
+}
+
+function draw(){
+ const c=document.getElementById("chart"),dpr=devicePixelRatio||1,rect=c.getBoundingClientRect();
+ c.width=rect.width*dpr;c.height=310*dpr;
+ const ctx=c.getContext("2d");ctx.scale(dpr,dpr);
+ const W=rect.width,H=310,P={l:48,r:15,t:18,b:34};
+ const pts=50, values=[],loss=[],con=[];
+ for(let w=0;w<=pts;w++){values.push(portfolioValue(w));loss.push(portfolioValue(w)*.7);con.push(Math.min(10000,w*200))}
+ const max=Math.max(10000,...values,...loss)*1.1;
+ const X=w=>P.l+(W-P.l-P.r)*w/pts,Y=v=>H-P.b-(H-P.b-P.t)*v/max;
+ ctx.font="11px -apple-system,sans-serif";ctx.strokeStyle="#e5e7eb";ctx.fillStyle="#667085";
+ for(let i=0;i<=4;i++){let v=max*i/4,y=Y(v);ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(W-P.r,y);ctx.stroke();ctx.fillText(money(v),5,y+4)}
+ function path(arr,color,dash=[]){ctx.beginPath();arr.forEach((v,i)=>{let x=X(i),y=Y(v);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle=color;ctx.lineWidth=3;ctx.setLineDash(dash);ctx.stroke();ctx.setLineDash([])}
+ path(con,"#111827");path(values,"#16a34a");path(loss,"#dc2626",[7,6]);
+ ctx.strokeStyle="#98a2b3";ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(X(s.week),P.t);ctx.lineTo(X(s.week),H-P.b);ctx.stroke();ctx.setLineDash([]);
+ ctx.fillStyle="#667085";ctx.fillText("Week 0",P.l,H-10);ctx.fillText("Week 50",W-P.r-42,H-10);
+}
+
+document.getElementById("saveBtn").onclick=()=>{
+ if(s.week>=50)return;
+ const total=Object.values(s.alloc).reduce((a,b)=>a+b,0);
+ if(total!==0&&total!==200){alert("Weekly allocation must be exactly $200, or $0 if you want to keep it as cash.");return}
+ const snap=JSON.stringify(s);
+ s.contributed+=200;s.cash+=200;s.week++;
+ if(total===200){
+  Object.entries(s.alloc).forEach(([k,a])=>{if(a>0&&s.cash>=a)s.cash-=a});
+ }
+ s.weekly.push(total===200?Object.values(s.alloc):[]);
+ s.history.push(snap);render();
+};
+
+document.getElementById("undoBtn").onclick=()=>{
+ if(!s.history.length)return;
+ s=JSON.parse(s.history.pop());render();
+};
+
+document.getElementById("resetBtn").onclick=()=>{
+ if(confirm("Reset the entire $10K tracker?")){location.reload()}
+};
+
+addEventListener("resize",draw);render();
+</script>
+</body>
+</html>
